@@ -23,29 +23,34 @@ router.post('/send', async (req, res) => {
     let aiResponse;
 
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here') {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
-        systemInstruction: 'You are AI Vora, a helpful and friendly student productivity assistant. Help students with their studies, explain concepts clearly, and keep them motivated.'
-      });
-
-      // Build chat history for context (exclude the message we just saved)
-      const history = await Message.find({ userId: SHARED_USER_ID })
-        .sort({ createdAt: 1 })
-        .limit(20);
-
-      // Gemini requires history to start with 'user' and alternate roles
-      const chatHistory = [];
-      for (const m of history.slice(0, -1)) { // exclude last (current user msg)
-        chatHistory.push({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }]
+      try {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({
+          model: 'gemini-2.0-flash',
+          systemInstruction: 'You are AI Vora, a helpful and friendly student productivity assistant. Help students with their studies, explain concepts clearly, and keep them motivated.'
         });
-      }
 
-      const chat = model.startChat({ history: chatHistory });
-      const result = await chat.sendMessage(message);
-      aiResponse = result.response.text();
+        // Build chat history for context (exclude the message we just saved)
+        const history = await Message.find({ userId: SHARED_USER_ID })
+          .sort({ createdAt: 1 })
+          .limit(20);
+
+        // Gemini requires history to start with 'user' and alternate roles
+        const chatHistory = [];
+        for (const m of history.slice(0, -1)) { // exclude last (current user msg)
+          chatHistory.push({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }]
+          });
+        }
+
+        const chat = model.startChat({ history: chatHistory });
+        const result = await chat.sendMessage(message);
+        aiResponse = result.response.text();
+      } catch (geminiErr) {
+        console.error('Gemini unavailable, using fallback response:', geminiErr.message);
+        aiResponse = getMockResponse(message);
+      }
     } else {
       aiResponse = getMockResponse(message);
     }
