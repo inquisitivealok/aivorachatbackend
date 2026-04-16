@@ -8,31 +8,37 @@ const SHARED_USER_ID = 'aivora_default_user';
 const buildLearningInstruction = (learningContext = {}) => {
   if (!learningContext || !learningContext.active) return '';
 
-  const stage = learningContext.stage || 'teaching';
-  const topic = learningContext.topic || '';
-  const topicNumber = learningContext.topicNumber || '';
-  const totalTopics = learningContext.totalTopics || '';
-  const subtopicNumber = learningContext.subtopicNumber || '';
-  const totalSubtopics = learningContext.totalSubtopics || '';
-  const sessionTitle = learningContext.sessionTitle || 'Study Session';
+  const { stage, topic, topicNumber, totalTopics, subtopicNumber, totalSubtopics, sessionTitle } = learningContext;
 
-  return `
-Learning session context (strict):
-- Session: ${sessionTitle}
-- Stage: ${stage}
-- Current topic: ${topic || 'N/A'} (${topicNumber || '?'} of ${totalTopics || '?'})
-- Current subtopic: ${subtopicNumber || '?'} of ${totalSubtopics || '?'}
+  if (stage === 'roadmap') {
+    return `LEARNING SESSION STARTED: "${sessionTitle}"
+Your task: Generate a structured study roadmap ONLY. Do NOT teach anything yet.
+Format:
+1. Topic Name
+   - subtopic a
+   - subtopic b
+   - subtopic c
+(repeat for each topic)
+End with exactly: "Reply **done** to start learning the first topic!"`;
+  }
 
-Rules for this response:
-- Stay on the current stage/topic only; do not jump ahead.
-- If stage is "roadmap", provide roadmap only and ask user to type "done".
-- If stage is "teaching", teach ONLY the current subtopic using this structure:
-  1) Concept (2-4 lines)
-  2) Example (short)
-  3) Quick Practice (1 question)
-  4) End with: Type "done" for next.
-- Keep response concise and directly useful for learning.
-`;
+  if (stage === 'teaching') {
+    return `TEACHING SESSION: "${sessionTitle}"
+Teach subtopic ${subtopicNumber} of ${totalSubtopics} for topic "${topic}" (topic ${topicNumber} of ${totalTopics}).
+Use this EXACT structure:
+**Concept:** [3-5 line explanation]
+**Example:** [one concrete example]
+**Practice:** [one short question]
+End with: "Reply **done** when ready for the next subtopic."
+Do NOT cover other subtopics or topics.`;
+  }
+
+  if (stage === 'completed') {
+    return `SESSION COMPLETE: "${sessionTitle}"
+Provide: 1) Short recap of all topics covered, 2) 5 key takeaways, 3) 3 suggested next topics to explore.`;
+  }
+
+  return '';
 };
 
 const getMockResponse = (userMessage) => {
@@ -51,34 +57,38 @@ router.post('/send', async (req, res) => {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({
           model: 'gemini-1.5-flash',
-          systemInstruction: `You are AI Vora, a highly capable general assistant.
+          systemInstruction: `You are AI Vora, a dedicated student tutor and study assistant.
 
-Core behavior:
-- Answer any question or request the user gives you, on any topic.
-- Always respond directly based on the user's latest message and intent.
-- Use conversation history to stay consistent and context-aware.
-- Never refuse a reasonable request or redirect unnecessarily.
-- If the user asks about coding, science, math, history, creative writing, or anything else — help fully.
+When a learning session context is provided, you MUST follow it strictly:
+- If stage is "roadmap": Generate a clear numbered roadmap of all topics to be covered. List each topic with 2-3 bullet subtopics under it. End with: "Reply **done** to start learning the first topic!"
+- If stage is "teaching": Teach ONLY the specified subtopic using this exact structure:
+  **Concept:** (3-5 lines of clear explanation)
+  **Example:** (one concrete example)
+  **Practice:** (one short question for the student)
+  End with: "Reply **done** when you're ready for the next subtopic."
+- If stage is "completed": Give a summary of what was learned, key takeaways, and 3 suggested next topics.
+- NEVER skip ahead or combine multiple topics in one response.
+- NEVER ignore the learning context instructions.
 
-Response style:
-- Be clear, concise, and accurate.
-- Use examples or step-by-step explanations when helpful.
-- Match the tone to the request: casual for casual, detailed for technical.
-- Do not add unnecessary filler or repeat yourself.
-`
+When no learning context is provided, answer any question helpfully and clearly.`
         });
 
         const history = await Message.find({ userId: SHARED_USER_ID })
           .sort({ createdAt: 1 })
           .limit(20);
 
+        // Build valid alternating history (Gemini requires user/model alternation starting with user)
+        const rawHistory = history.slice(0, -1);
         const chatHistory = [];
-        for (const m of history.slice(0, -1)) {
-          chatHistory.push({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-          });
+        for (const m of rawHistory) {
+          const role = m.role === 'assistant' ? 'model' : 'user';
+          if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === role) continue;
+          chatHistory.push({ role, parts: [{ text: m.content }] });
         }
+        // History must start with 'user'
+        while (chatHistory.length > 0 && chatHistory[0].role !== 'user') chatHistory.shift();
+        // History must end with 'model' (last entry before current user message)
+        while (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role !== 'model') chatHistory.pop();
 
         const chat = model.startChat({ history: chatHistory });
         const learningInstruction = buildLearningInstruction(learningContext);
@@ -182,7 +192,7 @@ module.exports = router;
 //       try {
 //         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 //         const model = genAI.getGenerativeModel({
-//           model: 'gemini-2.0-flash',
+//           model: 'gemini-2.5-flash',
 //           systemInstruction: `You are AI Vora, a focused study assistant.
 
 // Core behavior:
