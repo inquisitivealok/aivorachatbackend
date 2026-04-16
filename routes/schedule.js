@@ -15,8 +15,8 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { title, startTime, endTime, days } = req.body;
-    const schedule = await Schedule.create({ userId: SHARED_USER_ID, title, startTime, endTime, days });
+    const { title, startTime, endTime, days, topics } = req.body;
+    const schedule = await Schedule.create({ userId: SHARED_USER_ID, title, startTime, endTime, days, topics });
     res.status(201).json(schedule);
   } catch (err) {
     res.status(500).json({ message: err.message });

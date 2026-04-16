@@ -6,6 +6,7 @@ const scheduleSchema = new mongoose.Schema({
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
   days: [{ type: String }],
+  topics: [{ type: String }],
   createdAt: { type: Date, default: Date.now }
 });
 
